@@ -7,10 +7,10 @@ checks.
 This directory holds the application used to scan a postman collection, generate randomized "Fuzzed" payloads, and execute them. 
 
 ### Usage
-```--path``` Path to your Postman Collection.
-```--version``` Show version number.
-```-r, --runs``` Number of test runs per discovered endpoint (default is 1).
-```-h, --help``` Show help menu.
+```--path``` Path to your Postman Collection.  
+```--version``` Show version number.  
+```-r, --runs``` Number of test runs per discovered endpoint (default is 1).  
+```-h, --help``` Show help menu.  
 
 Example: *node .collection_parser.js --path '.\Postman-Collections\IOU CorDapp.postman_collection.json'*
 

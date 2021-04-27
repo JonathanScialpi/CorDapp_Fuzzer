@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel>
+      <module name="CorDapp.clients" target="1.8" />
+      <module name="CorDapp.clients.main" target="1.8" />
+      <module name="CorDapp.clients.test" target="1.8" />
+      <module name="CorDapp.contracts" target="1.8" />
+      <module name="CorDapp.contracts.main" target="1.8" />
+      <module name="CorDapp.contracts.test" target="1.8" />
+      <module name="CorDapp.main" target="1.8" />
+      <module name="CorDapp.test" target="1.8" />
+      <module name="CorDapp.workflows" target="1.8" />
+      <module name="CorDapp.workflows.integrationTest" target="1.8" />
+      <module name="CorDapp.workflows.main" target="1.8" />
+      <module name="CorDapp.workflows.test" target="1.8" />
+    </bytecodeTargetLevel>
+  </component>
+</project>

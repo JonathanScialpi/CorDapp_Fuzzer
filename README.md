@@ -1,4 +1,4 @@
-# CorDapp Fuzzer
+# CorDapp Fuzzer CLI 1.0.0
 The purpose of this project is to create an applicatoin which can identify input validation errors. The integrity of a DLT app is based on the accuracy of the ledger. Therefore all payloads given to a flow should be as close to perfect as possible in order for a flow to successfully write to ledger. By using fuzzed inputs, we can see where a CorDapp's flows and/or Contract logic is lacking sufficient logical 
 checks.
 
@@ -6,7 +6,13 @@ checks.
 ## Fuzzer
 This directory holds the application used to scan a postman collection, generate randomized "Fuzzed" payloads, and execute them. 
 
-*To be continued ...*
+### Usage
+```--path``` Path to your Postman Collection.
+```--version``` Show version number.
+```-r, --runs``` Number of test runs per discovered endpoint (default is 1).
+```-h, --help``` Show help menu.
+
+Example: *node .collection_parser.js --path '.\Postman-Collections\IOU CorDapp.postman_collection.json'*
 
 ## CorDapp
 This is a simple CorDapp capable of generate IOUs.

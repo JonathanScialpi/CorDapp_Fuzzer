@@ -1,0 +1,137 @@
+{
+	"info": {
+		"_postman_id": "8d5fd482-0808-4757-a059-60821e4dac88",
+		"name": "IOU CorDapp",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Node's Identity",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8080/me",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"me"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Node's Peers",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8080/peers",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"peers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get All IOUs",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8080/ious",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"ious"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Node's IOUs",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8080/ious",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"ious"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create IOU",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "iouValue",
+						"value": "100",
+						"type": "text",
+						"disabled": true
+					},
+					{
+						"key": "partName",
+						"value": "PartyB",
+						"type": "text",
+						"disabled": true
+					}
+				],
+				"body": {
+					"mode": "urlencoded",
+					"urlencoded": [
+						{
+							"key": "iouValue",
+							"value": "100",
+							"type": "text"
+						},
+						{
+							"key": "partyName",
+							"value": "O=PartyB, L=New York, C=US",
+							"type": "text"
+						}
+					],
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8080/create-iou",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"create-iou"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

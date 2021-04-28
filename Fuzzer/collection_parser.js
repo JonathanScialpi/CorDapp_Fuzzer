@@ -1,3 +1,5 @@
+const axios = require('axios');
+const querystring = require('querystring');
 var yargs = require('yargs');
 
 yargs.version('1.0.0');
@@ -27,4 +29,60 @@ if (!argv.path){
 var fs = require('fs'),  Collection = require('postman-collection').Collection,  myCollection;
 
 myCollection = new Collection(JSON.parse  (fs.readFileSync(argv.path).toString()));
-console.log(myCollection.toJSON());
+
+myCollection.forEachItem(
+  
+  function(item){
+    switch(item.request.method) {
+      case "POST":
+        execURLEncodedRequest(
+          item.request.url.getRaw(), 
+          buildDataMap(item.request.body.urlencoded.members)
+          );
+        break;
+      default:
+          execBasicGET(item.request.url.getRaw());
+    };
+  }
+);
+
+function execBasicGET(url){
+  axios({
+    method: "get",
+    url: url
+  })
+  .then(function (response) {
+    console.log(response);
+  })
+  .catch(function (error) {
+    console.log(error);
+  })
+  .then(function () {
+    // always executed
+  });
+}
+
+function execURLEncodedRequest(url, data){
+  axios({
+    method: "post",
+    url: url,
+    data:  querystring.stringify(data)
+  })
+  .then(function (response) {
+    console.log(response);
+  })
+  .catch(function (error) {
+    console.log(error);
+  })
+  .then(function () {
+    // always executed
+  });
+}
+function buildDataMap(urlencodedMembers){
+  var dataMap = {};
+  var index;
+  for(index in urlencodedMembers){
+    dataMap[urlencodedMembers[index].key] = urlencodedMembers[index].value;
+  }
+  return dataMap;
+}

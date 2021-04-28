@@ -49,14 +49,14 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "http://localhost:8080/ious",
+					"raw": "http://localhost:8080/my-ious",
 					"protocol": "http",
 					"host": [
 						"localhost"
 					],
 					"port": "8080",
 					"path": [
-						"ious"
+						"my-ious"
 					]
 				}
 			},
@@ -85,26 +85,13 @@
 			"name": "Create IOU",
 			"request": {
 				"method": "POST",
-				"header": [
-					{
-						"key": "iouValue",
-						"value": "100",
-						"type": "text",
-						"disabled": true
-					},
-					{
-						"key": "partName",
-						"value": "PartyB",
-						"type": "text",
-						"disabled": true
-					}
-				],
+				"header": [],
 				"body": {
 					"mode": "urlencoded",
 					"urlencoded": [
 						{
 							"key": "iouValue",
-							"value": "100",
+							"value": "50",
 							"type": "text"
 						},
 						{

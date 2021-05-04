@@ -1,7 +1,7 @@
 {
     "iouValue" : {
-        "fuzzers" : ["numbers", "text", "textAndNumbers", "textExtendedLang", "textAndSymbols" ],
-        "runsPerFuzz" : 1
+        "fuzzers" : ["numbers", "text", "textAndNumbers", "textExtendedLang", "textAndSymbols"],
+        "runsPerFuzz" : 5
 
     },
     "partyName" : {

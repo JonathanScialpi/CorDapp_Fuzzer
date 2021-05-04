@@ -13,10 +13,17 @@ const argv = yargs
     type: 'string',
   }
 })
-.command('--paramConfig', 'Path to your Postman Collection',{
+.command('--paramConfig', 'Path to your configuration file',{
   paramConfig: {
-    description: 'path to the postman collection file',
+    description: 'the configuration file is used to control testing',
     alias: 'conf',
+    type: 'string',
+  }
+})
+.command('--outputPath', 'Path to where you would like to save your test results.',{
+  outputPath: {
+    description: 'this file will contain error msgs, status codes, exec time, etc...',
+    alias: 'out',
     type: 'string',
   }
 })
@@ -31,13 +38,24 @@ if (!argv.pmanCollection){
   throw new Error("The postman collection command is required");
 }else if(!argv.paramConfig){
   throw new Error ("The config command is required");
+}else if(!argv.outputPath){
+  throw new Error ("The outputPath command is required");
 }
 
 var fs = require('fs'),  Collection = require('postman-collection').Collection,  myCollection;
 
+fs.writeFile(argv.outputPath, 
+  "Date, Status_Code, Url, Payload, URI", 
+  'utf8',
+  function (err) {
+    if (err) {
+      console.log('Some error occured - file either not saved or corrupted file saved.');
+    } 
+  }
+);
+
 myCollection = new Collection(JSON.parse(fs.readFileSync(argv.pmanCollection).toString()));
 let config = JSON.parse(fs.readFileSync(argv.paramConfig));
-// console.log(type(config))
 
 // First run of all requests to test that they work and to attain the peerlist
 myCollection.forEachItem(
@@ -47,8 +65,7 @@ myCollection.forEachItem(
       parseConfig(item);
     }
     else if(item.request.method == "GET"){
-      // dynamicRequest(item.request.method, item.request.url.getRaw(), buildDataMap());
-      console.log("Skipping GETs for now...")
+      dynamicRequest(item.request.method, item.request.url.getRaw(), {});
     }
     else{
       throw new Error(item.request.method + " is not currently supported.");
@@ -64,14 +81,28 @@ function dynamicRequest(method, url, dataMap){
     url: url,
     data: dataMap
   })
-  .then(function (response) {
-    console.log(response);
-  })
+   .then(function (response) {
+      recordResponse(
+      [
+        response.headers.date.replace(',',' '),
+        response.status,
+        response.config.url,
+        config.data,
+        decodeURIComponent(config.url + config.data).replace(',',' ')
+      ].join(', ')
+    );
+   })
   .catch(function (error) {
-    console.log(error);
-  })
-  // .then(function () {})
-  ;
+    recordResponse(
+      [
+        error.response.headers.date.replace(',', ' '),
+        error.response.status,
+        error.config.url,
+        error.config.data,
+        decodeURIComponent(error.config.url + error.config.data).replace(',',' ')
+      ].join(', ')
+    );
+  });
 }
 
 function parseConfig(_item){
@@ -116,7 +147,6 @@ function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
       config[config["peerParam"]]["minPeers"],
       config[config["peerParam"]]["maxPeers"]
       );
-      console.log("PEER WAS: " + dataMap["partyName"])
   }
   return dataMap;
 }
@@ -137,7 +167,6 @@ function postRequestByMode(item, requestData){
         item.request.method, 
         item.request.url.getRaw(), 
         querystring.stringify(
-          // buildDataMap(item.request.body.urlencoded.members)
           requestData
           ));
   };
@@ -154,20 +183,15 @@ function numberFuzzer(min=Number.MIN_SAFE_INTEGER, max=Number.MAX_SAFE_INTEGER, 
   var decimal = 0;
   if(decimalsMax > 1){
       var decimals = Math.floor(Math.random() * (decimalsMax - decimalsMin) + decimalsMin);
-  // console.log("number of decimals: " + decimals)
 
       var decimalMax = 10**decimals
-      // console.log("decimalMax: " + decimalMax)
 
       var decimalNumber = Math.floor(Math.random() * decimalMax);
-      // console.log("decimalNumber: " + decimalNumber)
   
       decimal = decimalNumber/decimalMax
-      // console.log("decimal: " + decimal)
   }
 
   var mainNum = Math.random() * (max - min) + min;
-  // console.log("main numb: " + mainNum)
 
   return Math.floor(mainNum) + decimal;
 }
@@ -213,3 +237,16 @@ function getRandomPeer(_peerList, _minPeers=1, _maxPeers=2){
   }
   return peers; 
 }
+
+function recordResponse(_data){
+  fs.appendFile(argv.outputPath, 
+    '\n'+_data, 
+    'utf8',
+    function (err) {
+      if (err) {
+        console.log('Some error occured - file either not saved or corrupted file saved.');
+      } 
+    }
+  );
+}
+

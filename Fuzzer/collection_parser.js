@@ -2,7 +2,7 @@ const axios = require('axios');
 const querystring = require('querystring');
 var yargs = require('yargs');
 var shuffle = require('shuffle-array');
-
+//-------------------------------------------------- CLI definition start --------------------------------------------------
 yargs.version('1.0.0');
 
 const argv = yargs
@@ -32,18 +32,20 @@ const argv = yargs
 .alias('help','h')
 .argv;
 
+if (!argv.pmanCollection){
+  throw new Error("The --pmanCollection command is required");
+}else if(!argv.paramConfig){
+  throw new Error("The --paramConfig command is required");
+}else if(!argv.outputPath){
+  throw new Error("The --outputPath command is required");
+}else if(argv.outputPath.substring(argv.outputPath.length-4, argv.outputPath.length) != ".csv"){
+  throw new Error("Output file must be of type .csv");
+}
+//-------------------------------------------------- CLI definition end --------------------------------------------------
+
 //-------------------------------------------------- main start --------------------------------------------------
 
-if (!argv.pmanCollection){
-  throw new Error("The postman collection command is required");
-}else if(!argv.paramConfig){
-  throw new Error ("The config command is required");
-}else if(!argv.outputPath){
-  throw new Error ("The outputPath command is required");
-}
-
-var fs = require('fs'),  Collection = require('postman-collection').Collection,  myCollection;
-
+// create csv file on path provided by user
 fs.writeFile(argv.outputPath, 
   "Date, Status_Code, Url, Payload, URI", 
   'utf8',
@@ -54,10 +56,15 @@ fs.writeFile(argv.outputPath,
   }
 );
 
+// parse postman collection using postman sdk
+var fs = require('fs'),  Collection = require('postman-collection').Collection,  myCollection;
 myCollection = new Collection(JSON.parse(fs.readFileSync(argv.pmanCollection).toString()));
+
+//parse config file provided by user setup fuzzer tests
 let config = JSON.parse(fs.readFileSync(argv.paramConfig));
 
-// First run of all requests to test that they work and to attain the peerlist
+// for every request determine if it is a post or a get. Gets without params can just be ran.
+// posts must be examined for the body type and parameters configuration.
 myCollection.forEachItem(
 
   function(item){
@@ -75,6 +82,12 @@ myCollection.forEachItem(
 
 //-------------------------------------------------- main end --------------------------------------------------
 
+/*
+@PARAM method -> HTTP request method such as POST or GET
+@PARAM url -> URL target of the request
+@PARAM dataMap -> arguments parsed from postman collection which will be replaced with fuzzed versions
+@DESCRIPTION -> the purpose of this function is to generate a request based on the given args and append the response to the csv file
+*/
 function dynamicRequest(method, url, dataMap){
   axios({
     method: method.toLowerCase(),
@@ -84,27 +97,32 @@ function dynamicRequest(method, url, dataMap){
    .then(function (response) {
       recordResponse(
       [
-        response.headers.date.replace(',',' '),
+        response.headers.date.replace(/[,]/g,' '),
         response.status,
         response.config.url,
         config.data,
-        decodeURIComponent(config.url + config.data).replace(',',' ')
+        decodeURIComponent(config.url + config.data).replace(/[,]/g,' ')
       ].join(', ')
     );
    })
   .catch(function (error) {
     recordResponse(
       [
-        error.response.headers.date.replace(',', ' '),
+        error.response.headers.date.replace(/[,]/g,' '),
         error.response.status,
         error.config.url,
         error.config.data,
-        decodeURIComponent(error.config.url + error.config.data).replace(',',' ')
+        decodeURIComponent(error.config.url + error.config.data).replace(/[,]/g,' ')
       ].join(', ')
     );
   });
 }
 
+/*
+@PARAM item -> item is a request parsed from the postman collection
+@DESCRIPTION -> the purpose of this function is to find params that are mentioned in the config
+once found, we replace the value with a fuzzed value and execute a request.
+*/
 function parseConfig(_item){
   var params = _item.request.body.urlencoded.members;
   //search all parameters in current request   
@@ -113,6 +131,7 @@ function parseConfig(_item){
       var currentKey = params[index].key;
        // if we find one that is also in the config then we can start generating tests
       if(currentKey in config){
+        //since a match param was found, generate test for each fuzzer type where the number of tests is "runsPerFuzz"
         for(fuzzerIndex in config[currentKey]["fuzzers"]){
           for(var i = 0; i < config[currentKey]["runsPerFuzz"]; i++){
             postRequestByMode(
@@ -129,6 +148,11 @@ function parseConfig(_item){
     }
 }
 
+/*
+@PARAM keyToFuzz -> the parameter name which will be mapped to a fuzzed value
+@PARAM fuzzerType -> the current requested fuzz value type (number, text, textWithNumbers, etc...)
+@DESCRIPTION -> this function builds a dataMap with fuzzed vales which will be used as a payload for a request.
+*/
 function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
   var dataMap = {}
      for(var index in _params){
@@ -151,6 +175,12 @@ function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
   return dataMap;
 }
 
+/*
+@PARAM item -> item is a request parsed from the postman collection
+@DESCRIPTION -> Assuming there will be more body types to handle in the future,
+this function will prepare the request for the proper type. For now we are just
+handling urlencoded and the other switch cases are fillers.
+*/
 function postRequestByMode(item, requestData){
   switch(item.request.body.mode) {
     case "FillerMode1":
@@ -172,13 +202,13 @@ function postRequestByMode(item, requestData){
   };
 }
 
-/* 
-Fuzzer options: number, text, x500name, x500nameFromList
-Params to apply to: Default is all, listOfKeys to apply to
-*/
-
-// random number of decimal points between 0-3 decimals
-// random number between int min and int max
+/*
+@PARAM -> min is the smallest number that will be used in the rng (inclusive)
+@PARAM -> max is the largest number that will be used in the rng (non-inclusive)
+@PARAM -> min is the least amount of digits that will be used in the rng (inclusive)
+@PARAM -> max is the largest amount of digits that will be used in the rng (non-inclusive)
+@DESCRIPTION -> This funciton is responsible for producing random numbers.
+ */
 function numberFuzzer(min=Number.MIN_SAFE_INTEGER, max=Number.MAX_SAFE_INTEGER, decimalsMin=1, decimalsMax=4){
   var decimal = 0;
   if(decimalsMax > 1){
@@ -201,12 +231,17 @@ Random a-z/A-Z: AJnvaKLJzsd
 Random a-z/A-Z extended languages: 
 Random a-z/A-Z + numbers: s8Av9apJd1
 Random a-z/A-Z + symbols: aJ
+
+@DESCRIPTION -> function responsible for producing randomly generated strings. The default is the standard
+alphabet with capitalized and non-capitalized letters. Others are:
+- textExtendedLang which includes other langurages such as greek along with the standard set
+- textAndNumbers which leverages the numberFuzzer to add numbers to the string
+- textAndSymbols which will include symbols such as emojis along with the standard set
 */
 function textFuzzer(fuzzType="text", minLength=1, maxLength=100){
     
   var characterLib = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z']
 
-  //choose library
   switch(fuzzType) {
       case "textExtendedLang":
           characterLib = characterLib.concat(require('@unicode/unicode-11.0.0/General_Category/Lowercase_Letter/symbols.js')).concat(require('@unicode/unicode-11.0.0/General_Category/Lowercase_Letter/symbols.js'));

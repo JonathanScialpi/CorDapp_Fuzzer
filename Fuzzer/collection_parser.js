@@ -20,7 +20,7 @@ const argv = yargs
     type: 'string',
   }
 })
-.command('--outputPath', 'Path to where you would like to save your test results.',{
+.command('--outputPath', 'Path to where you would like to save your test results',{
   outputPath: {
     description: 'this file will contain error msgs, status codes, exec time, etc...',
     alias: 'out',

@@ -7,12 +7,14 @@ checks.
 This directory holds the application used to scan a postman collection, generate randomized "Fuzzed" payloads, and execute them. 
 
 ### Usage
-```--path``` Path to your Postman Collection.  
+```--pmanCollection``` Path to your Postman Collection.  
+```--paramConfig``` Path to your configuration file.  
+```--outputPath``` Path to where you would like to save your test results.  
 ```--version``` Show version number.  
 ```-r, --runs``` Number of test runs per discovered endpoint (default is 1).  
 ```-h, --help``` Show help menu.  
 
-Example: *node .collection_parser.js --path '.\Postman-Collections\IOU CorDapp.postman_collection.json'*
+Example: *node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --paramConfig ..\SampleConfig.json --outputPath .\myTest.csv*
 
 ## CorDapp
 This is a simple CorDapp capable of generate IOUs.

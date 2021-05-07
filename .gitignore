@@ -10,4 +10,4 @@
 &&/node_modules/
 **/logs/
 corda-nodeinfo/corda-nodeinfo.iml
-*~*
+/SampleConfig.json

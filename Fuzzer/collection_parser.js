@@ -2,10 +2,19 @@ const axios = require('axios');
 const querystring = require('querystring');
 var yargs = require('yargs');
 var shuffle = require('shuffle-array');
+
 //-------------------------------------------------- CLI definition start --------------------------------------------------
 yargs.version('1.0.0');
 
 const argv = yargs
+/*
+There are two ways to use this CLI.
+The first is to generate the configuation file:
+  node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --paramConfig ..\SampleConfig.json --testOutputPath .\myTest.csv
+
+The second is to generated fuzzed requests and record the output of the results:
+  node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --confOutputPath.\myTest.json --partyParams partyName,thisOtherOne
+*/
 .command('--pmanCollection', 'Path to your Postman Collection',{
   pmanCollection: {
     description: 'path to the postman collection file',
@@ -20,10 +29,24 @@ const argv = yargs
     type: 'string',
   }
 })
-.command('--outputPath', 'Path to where you would like to save your test results',{
-  outputPath: {
+.command('--testOutputPath', 'Path to where you would like to save your test results',{
+  testOutputPath: {
     description: 'this file will contain error msgs, status codes, exec time, etc...',
     alias: 'out',
+    type: 'string',
+  }
+})
+.command('--confOutputPath', 'Path to where you want to save your generated configuration file',{
+  confOutputPath: {
+    description: 'the configuration file is used to control testing',
+    alias: 'conf',
+    type: 'string',
+  }
+})
+.command('--partyParams', 'Comma delimited list of params which use Corda Partys',{
+  partyParams: {
+    description: 'once generated, you will have to edit the "peerList" as it will be blank by default',
+    alias: 'conf',
     type: 'string',
   }
 })
@@ -34,53 +57,171 @@ const argv = yargs
 
 if (!argv.pmanCollection){
   throw new Error("The --pmanCollection command is required");
-}else if(!argv.paramConfig){
-  throw new Error("The --paramConfig command is required");
-}else if(!argv.outputPath){
-  throw new Error("The --outputPath command is required");
-}else if(argv.outputPath.substring(argv.outputPath.length-4, argv.outputPath.length) != ".csv"){
-  throw new Error("Output file must be of type .csv");
+}
+else if(argv.paramConfig && !argv.testOutputPath){
+  throw new Error("The --testOutputPath command is required when fuzzing");
+}
+else if(!argv.paramConfig && argv.testOutputPath){
+  throw new Error("The --paramConfig command is required when setting a test output path");
+}
+else if(argv.partyParams && !argv.confOutputPath){
+  throw new Error("The --confOutputPath command is required when generating a config file");
+}
+else if(!argv.partyParams && argv.confOutputPath){
+  throw new Error("The --partyParams command is required when setting a config output path");
+}
+else if(!argv.confOutputPath && !argv.testOutputPath){
+  throw new Error("You must set an output path with --confOutputPath or --testOutputPath");
+}
+else if(!argv.partyParams && !argv.paramConfig){
+  throw new Error("You must set --partyParams or --paramConfig");
+}
+else if(argv.partyParams && argv.paramConfig){
+  throw new Error("You cannot set both --partyParams and --paramConfig");
+}
+else if(argv.confOutputPath && argv.testOutputPath){
+  throw new Error("You cannot set both --confOutputPath and --testOutputPath");
 }
 //-------------------------------------------------- CLI definition end --------------------------------------------------
 
-//-------------------------------------------------- main start --------------------------------------------------
 
-// create csv file on path provided by user
-fs.writeFile(argv.outputPath, 
-  "Date, Status_Code, Url, Payload, URI", 
-  'utf8',
-  function (err) {
-    if (err) {
-      console.log('Some error occured - file either not saved or corrupted file saved.');
-    } 
-  }
-);
+//-------------------------------------------------- Global Vars Start --------------------------------------------------
+
+const availableFuzzers = ["numbers", "text", "textAndNumbers", "textExtendedLang", "textAndSymbols"];
 
 // parse postman collection using postman sdk
 var fs = require('fs'),  Collection = require('postman-collection').Collection,  myCollection;
 myCollection = new Collection(JSON.parse(fs.readFileSync(argv.pmanCollection).toString()));
+let configMapJson;
+//-------------------------------------------------- Global Vars End --------------------------------------------------
 
-//parse config file provided by user setup fuzzer tests
-let config = JSON.parse(fs.readFileSync(argv.paramConfig));
 
-// for every request determine if it is a post or a get. Gets without params can just be ran.
-// posts must be examined for the body type and parameters configuration.
-myCollection.forEachItem(
+//-------------------------------------------------- main start --------------------------------------------------
 
-  function(item){
-    if(item.request.method == "POST"){
-      parseConfig(item);
-    }
-    else if(item.request.method == "GET"){
-      dynamicRequest(item.request.method, item.request.url.getRaw(), {});
-    }
-    else{
-      throw new Error(item.request.method + " is not currently supported.");
-    }
+if(argv.confOutputPath){
+  if(argv.confOutputPath.substring(argv.confOutputPath.length-5, argv.confOutputPath.length) != ".json"){
+    throw new Error("confOutputPath file must be of type .json");
   }
-);
+  console.log("Generating configuration file...")
+  configMapJson = {};
+  myCollection.forEachItem(
+
+    function(item){
+      if(item.request.method == "POST"){
+        choosePostParserType(item)
+      }
+      else if(item.request.method == "GET" && item.request.url.query.members.length > 0){
+        parseUrlEncodedGet(item);
+      }
+    }
+  );
+  writeToFile(argv.confOutputPath, JSON.stringify(configMapJson));
+}
+else{
+  if(argv.testOutputPath.substring(argv.testOutputPath.length-4, argv.testOutputPath.length) != ".csv"){
+    throw new Error("testOutputPath file must be of type .csv");
+  }
+  console.log("Generating fuzzed request results...")
+  let config = JSON.parse(fs.readFileSync(argv.testOutputPath));
+
+  // create csv file on path provided by user
+  writeToFile(argv.testOutputPath, "Date, Status_Code, Url, Payload, URI");
+
+  // for every request determine if it is a post or a get. Gets without params can just be ran.
+  // posts must be examined for the body type and parameters configuration.
+  myCollection.forEachItem(
+
+    function(item){
+      if(item.request.method == "POST"){
+        parseConfig(item);
+      }
+      else if(item.request.method == "GET"){
+        dynamicRequest(item.request.method, item.request.url.getRaw(), {});
+      }
+      else{
+        throw new Error(item.request.method + " is not currently supported.");
+      }
+    }
+  );
+}
 
 //-------------------------------------------------- main end --------------------------------------------------
+
+function writeToFile(_fileName, _content){
+  fs.writeFile(_fileName, _content, 'utf8',
+    function (err) {
+      if (err) {
+        console.log('Some error occured - file either not saved or corrupted file saved.');
+      } 
+  });    
+}
+
+function parseUrlEncodedGet(_item){
+  for(paramIndex in _item.request.url.query.members){
+    if(argv.partyParams.split(',').includes(_item.request.url.query.members[paramIndex].key)){
+      configMapJson[_item.request.url.query.members[paramIndex].key] = configurationByFuzzer("participants")
+    }else{
+      configMapJson[_item.request.url.query.members[paramIndex].key] = {"fuzzers":{}}
+      for(fuzzerIndex in availableFuzzers){
+        configMapJson[_item.request.url.query.members[paramIndex].key]['fuzzers'][availableFuzzers[fuzzerIndex]] = configurationByFuzzer(availableFuzzers[fuzzerIndex]);
+      }
+    }
+  }
+}
+
+function parseUrlEncodedPost(_item){
+  for(paramIndex in _item.request.body.urlencoded.members){
+    if(argv.partyParams.split(',').includes(_item.request.body.urlencoded.members[paramIndex].key)){
+      configMapJson[_item.request.body.urlencoded.members[paramIndex].key] = configurationByFuzzer("participants")
+    }else{
+      configMapJson[_item.request.body.urlencoded.members[paramIndex].key] = {"fuzzers":{}}
+      for(fuzzerIndex in availableFuzzers){
+        configMapJson[_item.request.body.urlencoded.members[paramIndex].key]['fuzzers'][availableFuzzers[fuzzerIndex]] = configurationByFuzzer(availableFuzzers[fuzzerIndex]);
+      }
+    }
+  }
+}
+
+function choosePostParserType(_item){
+  var content = "";
+  switch(_item.request.body.mode){
+    case("Filler"):
+      break;
+    default:
+      content = parseUrlEncodedPost(_item);
+  }
+  return content;
+}
+
+function configurationByFuzzer(_fuzzer){
+  var configObj;
+  switch(_fuzzer){
+    case("participants"):
+      configObj = {
+        "peerList" : [],
+        "maxPeers": 2,
+        "minPeers": 1,
+      }
+      break;
+    case("numbers"):
+      configObj = {
+        "min": Number.MIN_SAFE_INTEGER,
+        "max": Number.MAX_SAFE_INTEGER,
+        "decimalsMin" : 2,
+        "decimalsMax" : 4,
+        "runs": 5
+      }
+      break;
+    default:
+      //all text fuzzers
+      configObj = {
+        "minChars": 10,
+        "maxChars": 200,
+        "runs": 5
+    }
+  }
+  return configObj;
+}
 
 /*
 @PARAM method -> HTTP request method such as POST or GET

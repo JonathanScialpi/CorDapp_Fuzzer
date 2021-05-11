@@ -10,10 +10,10 @@ const argv = yargs
 /*
 There are two ways to use this CLI.
 The first is to generate the configuation file:
-  node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --paramConfig ..\SampleConfig.json --testOutputPath .\myTest.csv
+  node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --confOutputPath.\myTest.json --partyParams partyName,thisOtherOne
 
 The second is to generated fuzzed requests and record the output of the results:
-  node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --confOutputPath.\myTest.json --partyParams partyName,thisOtherOne
+  node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --paramConfig ..\SampleConfig.json --partyParams partyName,thisOtherOne --testOutputPath .\myTest.csv
 */
 .command('--pmanCollection', 'Path to your Postman Collection',{
   pmanCollection: {
@@ -64,20 +64,11 @@ else if(argv.paramConfig && !argv.testOutputPath){
 else if(!argv.paramConfig && argv.testOutputPath){
   throw new Error("The --paramConfig command is required when setting a test output path");
 }
-else if(argv.partyParams && !argv.confOutputPath){
-  throw new Error("The --confOutputPath command is required when generating a config file");
-}
-else if(!argv.partyParams && argv.confOutputPath){
-  throw new Error("The --partyParams command is required when setting a config output path");
+else if(!argv.partyParams){
+  throw new Error("The --partyParams command is required so the parser knows the name of your participant parameter");
 }
 else if(!argv.confOutputPath && !argv.testOutputPath){
   throw new Error("You must set an output path with --confOutputPath or --testOutputPath");
-}
-else if(!argv.partyParams && !argv.paramConfig){
-  throw new Error("You must set --partyParams or --paramConfig");
-}
-else if(argv.partyParams && argv.paramConfig){
-  throw new Error("You cannot set both --partyParams and --paramConfig");
 }
 else if(argv.confOutputPath && argv.testOutputPath){
   throw new Error("You cannot set both --confOutputPath and --testOutputPath");
@@ -93,6 +84,7 @@ const availableFuzzers = ["numbers", "text", "textAndNumbers", "textExtendedLang
 var fs = require('fs'),  Collection = require('postman-collection').Collection,  myCollection;
 myCollection = new Collection(JSON.parse(fs.readFileSync(argv.pmanCollection).toString()));
 let configMapJson;
+let config;
 //-------------------------------------------------- Global Vars End --------------------------------------------------
 
 
@@ -122,10 +114,10 @@ else{
     throw new Error("testOutputPath file must be of type .csv");
   }
   console.log("Generating fuzzed request results...")
-  let config = JSON.parse(fs.readFileSync(argv.testOutputPath));
+  config = JSON.parse(fs.readFileSync(argv.paramConfig));
 
   // create csv file on path provided by user
-  writeToFile(argv.testOutputPath, "Date, Status_Code, Url, Payload, URI");
+  writeToFile(argv.testOutputPath, "Date, Url, Method, Status_Code, Payload, URI, Response");
 
   // for every request determine if it is a post or a get. Gets without params can just be ran.
   // posts must be examined for the body type and parameters configuration.
@@ -133,7 +125,11 @@ else{
 
     function(item){
       if(item.request.method == "POST"){
-        parseConfig(item);
+        requestByMode(item);
+      }
+      else if(item.request.method == "GET" && item.request.url.query.members.length > 0){
+        // dynamicRequest(item.request.method, item.request.url.getRaw(), {});
+        requestByMode(item);
       }
       else if(item.request.method == "GET"){
         dynamicRequest(item.request.method, item.request.url.getRaw(), {});
@@ -233,30 +229,34 @@ function dynamicRequest(method, url, dataMap){
   axios({
     method: method.toLowerCase(),
     url: url,
-    data: dataMap
+    params: dataMap
   })
-   .then(function (response) {
-      recordResponse(
+   .then(function (response) {
+    recordResponse(
       [
         response.headers.date.replace(/[,]/g,' '),
-        response.status,
         response.config.url,
-        config.data,
-        decodeURIComponent(config.url + config.data).replace(/[,]/g,' ')
+        response.config.method,
+        response.status,
+        JSON.stringify(response.config.params).replace(/[,]/g,' '),
+        decodeURIComponent(response.request.res.responseUrl).replace(/[,]/g,' '),
+        JSON.stringify(response.data).replace(/[,]/g,' ')
       ].join(', ')
     );
    })
-  .catch(function (error) {
+  .catch(function (error) {
     recordResponse(
       [
         error.response.headers.date.replace(/[,]/g,' '),
+        error.response.config.url,
+        error.response.config.method,
         error.response.status,
-        error.config.url,
-        error.config.data,
-        decodeURIComponent(error.config.url + error.config.data).replace(/[,]/g,' ')
+        JSON.stringify(error.response.config.params).replace(/[,]/g,' '),
+        decodeURIComponent(error.request.res.responseUrl).replace(/[,]/g,' '),
+        JSON.stringify(error.response.data).replace(/[,]/g,' ')
       ].join(', ')
     );
-  });
+  } );
 }
 
 /*
@@ -264,24 +264,26 @@ function dynamicRequest(method, url, dataMap){
 @DESCRIPTION -> the purpose of this function is to find params that are mentioned in the config
 once found, we replace the value with a fuzzed value and execute a request.
 */
-function parseConfig(_item){
-  var params = _item.request.body.urlencoded.members;
+function urlEncodedRequestGenerator(_method, _params, _url){
   //search all parameters in current request   
-  for(var index in params){
+  for(var index in _params){
      
-      var currentKey = params[index].key;
+      var currentKey = _params[index].key;
        // if we find one that is also in the config then we can start generating tests
-      if(currentKey in config){
+      if((currentKey in config) && ("fuzzers" in config[currentKey])){
+        
+        var keyList = Object.keys(config[currentKey]["fuzzers"]);
         //since a match param was found, generate test for each fuzzer type where the number of tests is "runsPerFuzz"
-        for(fuzzerIndex in config[currentKey]["fuzzers"]){
-          for(var i = 0; i < config[currentKey]["runsPerFuzz"]; i++){
-            postRequestByMode(
-              _item,
-              buildFuzzedRequest(
-                currentKey,
-                config[currentKey]["fuzzers"][fuzzerIndex], 
-                params
-              )
+        for(fuzzerKey in keyList){
+          for(var i = 0; i < config[currentKey]['fuzzers'][keyList[fuzzerKey]]["runs"]; i++){
+            dynamicRequest(
+              _method, 
+              _url, 
+                buildFuzzedRequest(
+                  currentKey,
+                  keyList[fuzzerKey], 
+                  _params
+                )
             );
           }
         }
@@ -301,16 +303,29 @@ function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
     }
   
   if(_fuzzerType == "numbers"){
-    dataMap[_keyTofuzz] = numberFuzzer();
+    config[_keyTofuzz]['fuzzers'][_fuzzerType]
+    dataMap[_keyTofuzz] = numberFuzzer(
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["min"],
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["max"],
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["decimalsMin"],
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["decimalsMax"]
+    );
   }else{
-    dataMap[_keyTofuzz] = textFuzzer(_fuzzerType);
+    dataMap[_keyTofuzz] = textFuzzer(
+      _fuzzerType,
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["minChars"],
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["maxChars"],
+      );
   }
+  //if this dataMap has any of the partyParams listed, then grabe the config for it
   
-  if(dataMap[config["peerParam"]]){
-    dataMap[config["peerParam"]] = getRandomPeer(
-      [...config[config["peerParam"]]["peerList"]], 
-      config[config["peerParam"]]["minPeers"],
-      config[config["peerParam"]]["maxPeers"]
+  var intersections = Object.keys(dataMap).filter(element => argv.partyParams.split(',').includes(element));
+  if(intersections.length > 0){
+    
+    dataMap[intersections[0]] = getRandomPeer(
+      [...config[intersections[0]]["peerList"]], 
+      config[intersections[0]]["peerList"]["minPeers"],
+      config[intersections[0]]["peerList"]["maxPeers"]
       );
   }
   return dataMap;
@@ -322,25 +337,21 @@ function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
 this function will prepare the request for the proper type. For now we are just
 handling urlencoded and the other switch cases are fillers.
 */
-function postRequestByMode(item, requestData){
-  switch(item.request.body.mode) {
-    case "FillerMode1":
-      // code block
-      break;
-    case "FillerMode2":
-      // code block
-      break;
-    default:
-      // default POST request will be executed as urlencoded for now
-
-      // first make a request with existing values in collection to 
-      dynamicRequest(
-        item.request.method, 
-        item.request.url.getRaw(), 
-        querystring.stringify(
-          requestData
-          ));
-  };
+function requestByMode(item){
+  if(item.request.method == "POST"){
+    urlEncodedRequestGenerator(
+      item.request.method, 
+      item.request.body.urlencoded.members,
+      item.request.url.getRaw()
+      );
+  }
+  else if(item.request.method == "GET"){
+    urlEncodedRequestGenerator(
+      item.request.method, 
+      item.request.url.query.members,
+      item.request.url.protocol + "://" + item.request.url.host + ":" + item.request.url.port + "/" + item.request.url.path
+      );
+  }
 }
 
 /*
@@ -411,11 +422,14 @@ function getRandomPeer(_peerList, _minPeers=1, _maxPeers=2){
   while(peers.length < peerListSize){
     peers.push(_peerList.pop())
   }
+  if(peers.length == 1){
+    peers = peers[0]
+  }
   return peers; 
 }
 
 function recordResponse(_data){
-  fs.appendFile(argv.outputPath, 
+  fs.appendFile(argv.testOutputPath, 
     '\n'+_data, 
     'utf8',
     function (err) {

@@ -2,10 +2,19 @@ const axios = require('axios');
 const querystring = require('querystring');
 var yargs = require('yargs');
 var shuffle = require('shuffle-array');
+
 //-------------------------------------------------- CLI definition start --------------------------------------------------
-yargs.version('1.0.0');
+yargs.version('1.1.0');
 
 const argv = yargs
+/*
+There are two ways to use this CLI.
+The first is to generate the configuation file:
+  node .\collection_parser.js --pmanCollection My.postman_collection.json --confOutputPath .\SampleConfig.json --partyParams partyName
+
+The second is to generated fuzzed requests and record the output of the results:
+  node .\collection_parser.js --pmanCollection My.postman_collection.json --paramConfig .\SampleConfig.json --partyParams partyName --testOutputPath .\ExampleTestResults.csv
+*/
 .command('--pmanCollection', 'Path to your Postman Collection',{
   pmanCollection: {
     description: 'path to the postman collection file',
@@ -20,10 +29,24 @@ const argv = yargs
     type: 'string',
   }
 })
-.command('--outputPath', 'Path to where you would like to save your test results',{
-  outputPath: {
+.command('--testOutputPath', 'Path to where you would like to save your test results',{
+  testOutputPath: {
     description: 'this file will contain error msgs, status codes, exec time, etc...',
     alias: 'out',
+    type: 'string',
+  }
+})
+.command('--confOutputPath', 'Path to where you want to save your generated configuration file',{
+  confOutputPath: {
+    description: 'the configuration file is used to control testing',
+    alias: 'conf',
+    type: 'string',
+  }
+})
+.command('--partyParams', 'Comma delimited list of params which use Corda Partys',{
+  partyParams: {
+    description: 'once generated, you will have to edit the "peerList" as it will be blank by default',
+    alias: 'conf',
     type: 'string',
   }
 })
@@ -32,55 +55,163 @@ const argv = yargs
 .alias('help','h')
 .argv;
 
+// check if proper commands have been used
 if (!argv.pmanCollection){
   throw new Error("The --pmanCollection command is required");
-}else if(!argv.paramConfig){
-  throw new Error("The --paramConfig command is required");
-}else if(!argv.outputPath){
-  throw new Error("The --outputPath command is required");
-}else if(argv.outputPath.substring(argv.outputPath.length-4, argv.outputPath.length) != ".csv"){
-  throw new Error("Output file must be of type .csv");
+}
+else if(argv.paramConfig && !argv.testOutputPath){
+  throw new Error("The --testOutputPath command is required when fuzzing");
+}
+else if(!argv.paramConfig && argv.testOutputPath){
+  throw new Error("The --paramConfig command is required when setting a test output path");
+}
+else if(!argv.partyParams){
+  throw new Error("The --partyParams command is required so the parser knows the name of your participant parameter");
+}
+else if(!argv.confOutputPath && !argv.testOutputPath){
+  throw new Error("You must set an output path with --confOutputPath or --testOutputPath");
+}
+else if(argv.confOutputPath && argv.testOutputPath){
+  throw new Error("You cannot set both --confOutputPath and --testOutputPath");
 }
 //-------------------------------------------------- CLI definition end --------------------------------------------------
 
-//-------------------------------------------------- main start --------------------------------------------------
 
-// create csv file on path provided by user
-fs.writeFile(argv.outputPath, 
-  "Date, Status_Code, Url, Payload, URI", 
-  'utf8',
-  function (err) {
-    if (err) {
-      console.log('Some error occured - file either not saved or corrupted file saved.');
-    } 
-  }
-);
+//-------------------------------------------------- Global Vars Start --------------------------------------------------
+
+const availableFuzzers = ["numbers", "text", "textAndNumbers", "textExtendedLang", "textAndSymbols"];
 
 // parse postman collection using postman sdk
 var fs = require('fs'),  Collection = require('postman-collection').Collection,  myCollection;
 myCollection = new Collection(JSON.parse(fs.readFileSync(argv.pmanCollection).toString()));
+let configMapJson;
+let config;
+//-------------------------------------------------- Global Vars End --------------------------------------------------
 
-//parse config file provided by user setup fuzzer tests
-let config = JSON.parse(fs.readFileSync(argv.paramConfig));
 
-// for every request determine if it is a post or a get. Gets without params can just be ran.
-// posts must be examined for the body type and parameters configuration.
-myCollection.forEachItem(
+//-------------------------------------------------- main start --------------------------------------------------
 
-  function(item){
-    if(item.request.method == "POST"){
-      parseConfig(item);
-    }
-    else if(item.request.method == "GET"){
-      dynamicRequest(item.request.method, item.request.url.getRaw(), {});
-    }
-    else{
-      throw new Error(item.request.method + " is not currently supported.");
-    }
+//block for generating the config file
+if(argv.confOutputPath){
+  if(argv.confOutputPath.substring(argv.confOutputPath.length-5, argv.confOutputPath.length) != ".json"){
+    throw new Error("confOutputPath file must be of type .json");
   }
-);
+  console.log("Generating configuration file...")
+  configMapJson = {};
+  myCollection.forEachItem(
+
+    function(item){
+      if(item.request.method == "POST"){
+        parseUrlEncodedPost(item);
+      }
+      else if(item.request.method == "GET" && item.request.url.query.members.length > 0){
+        parseUrlEncodedGet(item);
+      }
+    }
+  );
+  writeToFile(argv.confOutputPath, JSON.stringify(configMapJson));
+}
+//block for executing the fuzzedt tests and recording the results
+else{
+  if(argv.testOutputPath.substring(argv.testOutputPath.length-4, argv.testOutputPath.length) != ".csv"){
+    throw new Error("testOutputPath file must be of type .csv");
+  }
+  console.log("Generating fuzzed request results...")
+  config = JSON.parse(fs.readFileSync(argv.paramConfig));
+
+  // create csv file on path provided by user
+  writeToFile(argv.testOutputPath, "Date, Url, Method, Status_Code, Payload, URI, Response");
+
+  // for every request determine if it is a post or a get. Gets without params can just be ran.
+  // posts must be examined for the body type and parameters configuration.
+  myCollection.forEachItem(
+
+    function(item){
+      if(item.request.method == "POST"){
+        requestByMode(item);
+      }
+      else if(item.request.method == "GET" && item.request.url.query.members.length > 0){
+        requestByMode(item);
+      }
+      else if(item.request.method == "GET"){
+        dynamicRequest(item.request.method, item.request.url.getRaw(), {});
+      }
+      else{
+        throw new Error(item.request.method + " is not currently supported.");
+      }
+    }
+  );
+}
 
 //-------------------------------------------------- main end --------------------------------------------------
+
+/*
+@DESCRIPTION -> the main function used to control the parsing and writing of the generated config files for GET requests
+@PARAM _item -> is the postman request we found in the collection.
+*/
+function parseUrlEncodedGet(_item){
+  for(paramIndex in _item.request.url.query.members){
+    if(argv.partyParams.split(',').includes(_item.request.url.query.members[paramIndex].key)){
+      configMapJson[_item.request.url.query.members[paramIndex].key] = configurationByFuzzer("participants")
+    }else{
+      configMapJson[_item.request.url.query.members[paramIndex].key] = {"fuzzers":{}}
+      for(fuzzerIndex in availableFuzzers){
+        configMapJson[_item.request.url.query.members[paramIndex].key]['fuzzers'][availableFuzzers[fuzzerIndex]] = configurationByFuzzer(availableFuzzers[fuzzerIndex]);
+      }
+    }
+  }
+}
+
+/*
+@DESCRIPTION -> the main function used to control the parsing and writing of the generated config files for POST requests
+@PARAM _item -> is the postman request we found in the collection.
+*/
+function parseUrlEncodedPost(_item){
+  for(paramIndex in _item.request.body.urlencoded.members){
+    if(argv.partyParams.split(',').includes(_item.request.body.urlencoded.members[paramIndex].key)){
+      configMapJson[_item.request.body.urlencoded.members[paramIndex].key] = configurationByFuzzer("participants")
+    }else{
+      configMapJson[_item.request.body.urlencoded.members[paramIndex].key] = {"fuzzers":{}}
+      for(fuzzerIndex in availableFuzzers){
+        configMapJson[_item.request.body.urlencoded.members[paramIndex].key]['fuzzers'][availableFuzzers[fuzzerIndex]] = configurationByFuzzer(availableFuzzers[fuzzerIndex]);
+      }
+    }
+  }
+}
+
+/*
+@DESCRIPTION this function returns the configuration option map to be written to the generated config file
+@PARAM _fuzzer -> the current fuzzer type options we are building
+*/
+function configurationByFuzzer(_fuzzer){
+  var configObj;
+  switch(_fuzzer){
+    case("participants"):
+      configObj = {
+        "peerList" : [],
+        "maxPeers": 2,
+        "minPeers": 1,
+      }
+      break;
+    case("numbers"):
+      configObj = {
+        "min": Number.MIN_SAFE_INTEGER,
+        "max": Number.MAX_SAFE_INTEGER,
+        "decimalsMin" : 2,
+        "decimalsMax" : 4,
+        "runs": 5
+      }
+      break;
+    default:
+      //all text fuzzers
+      configObj = {
+        "minChars": 10,
+        "maxChars": 200,
+        "runs": 5
+    }
+  }
+  return configObj;
+}
 
 /*
 @PARAM method -> HTTP request method such as POST or GET
@@ -88,59 +219,67 @@ myCollection.forEachItem(
 @PARAM dataMap -> arguments parsed from postman collection which will be replaced with fuzzed versions
 @DESCRIPTION -> the purpose of this function is to generate a request based on the given args and append the response to the csv file
 */
-function dynamicRequest(method, url, dataMap){
+function dynamicRequest(_method, _url, _dataMap){
   axios({
-    method: method.toLowerCase(),
-    url: url,
-    data: dataMap
+    method: _method.toLowerCase(),
+    url: _url,
+    params: _dataMap
   })
-   .then(function (response) {
-      recordResponse(
+   .then(function (response) {
+    recordResponse(
       [
         response.headers.date.replace(/[,]/g,' '),
-        response.status,
         response.config.url,
-        config.data,
-        decodeURIComponent(config.url + config.data).replace(/[,]/g,' ')
+        response.config.method,
+        response.status,
+        JSON.stringify(response.config.params).replace(/[,]/g,' '),
+        decodeURIComponent(response.request.res.responseUrl).replace(/[,]/g,' '),
+        JSON.stringify(response.data).replace(/[,]/g,' ')
       ].join(', ')
     );
    })
-  .catch(function (error) {
+  .catch(function (error) {
     recordResponse(
       [
         error.response.headers.date.replace(/[,]/g,' '),
+        error.response.config.url,
+        error.response.config.method,
         error.response.status,
-        error.config.url,
-        error.config.data,
-        decodeURIComponent(error.config.url + error.config.data).replace(/[,]/g,' ')
+        JSON.stringify(error.response.config.params).replace(/[,]/g,' '),
+        decodeURIComponent(error.request.res.responseUrl).replace(/[,]/g,' '),
+        JSON.stringify(error.response.data).replace(/[,]/g,' ')
       ].join(', ')
     );
-  });
+  } );
 }
 
 /*
-@PARAM item -> item is a request parsed from the postman collection
 @DESCRIPTION -> the purpose of this function is to find params that are mentioned in the config
 once found, we replace the value with a fuzzed value and execute a request.
+@PARAM _method -> the request's method such as POST or GET
+@PARAM _params -> the object holding the parameters used to make a request taken from the postman collection
+@PARAM _url -> url used for the postman request
 */
-function parseConfig(_item){
-  var params = _item.request.body.urlencoded.members;
+function urlEncodedRequestGenerator(_method, _params, _url){
   //search all parameters in current request   
-  for(var index in params){
+  for(var index in _params){
      
-      var currentKey = params[index].key;
+      var currentKey = _params[index].key;
        // if we find one that is also in the config then we can start generating tests
-      if(currentKey in config){
+      if((currentKey in config) && ("fuzzers" in config[currentKey])){
+        
+        var keyList = Object.keys(config[currentKey]["fuzzers"]);
         //since a match param was found, generate test for each fuzzer type where the number of tests is "runsPerFuzz"
-        for(fuzzerIndex in config[currentKey]["fuzzers"]){
-          for(var i = 0; i < config[currentKey]["runsPerFuzz"]; i++){
-            postRequestByMode(
-              _item,
-              buildFuzzedRequest(
-                currentKey,
-                config[currentKey]["fuzzers"][fuzzerIndex], 
-                params
-              )
+        for(fuzzerKey in keyList){
+          for(var i = 0; i < config[currentKey]['fuzzers'][keyList[fuzzerKey]]["runs"]; i++){
+            dynamicRequest(
+              _method, 
+              _url, 
+                buildFuzzedRequest(
+                  currentKey,
+                  keyList[fuzzerKey], 
+                  _params
+                )
             );
           }
         }
@@ -149,9 +288,10 @@ function parseConfig(_item){
 }
 
 /*
+@DESCRIPTION -> this function builds a dataMap with fuzzed vales which will be used as a payload for a request.
 @PARAM keyToFuzz -> the parameter name which will be mapped to a fuzzed value
 @PARAM fuzzerType -> the current requested fuzz value type (number, text, textWithNumbers, etc...)
-@DESCRIPTION -> this function builds a dataMap with fuzzed vales which will be used as a payload for a request.
+@PARAM _params -> the object holding the parameters used to make a request taken from the postman collection
 */
 function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
   var dataMap = {}
@@ -160,59 +300,68 @@ function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
     }
   
   if(_fuzzerType == "numbers"){
-    dataMap[_keyTofuzz] = numberFuzzer();
+    config[_keyTofuzz]['fuzzers'][_fuzzerType]
+    dataMap[_keyTofuzz] = numberFuzzer(
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["min"],
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["max"],
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["decimalsMin"],
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["decimalsMax"]
+    );
   }else{
-    dataMap[_keyTofuzz] = textFuzzer(_fuzzerType);
-  }
-  
-  if(dataMap[config["peerParam"]]){
-    dataMap[config["peerParam"]] = getRandomPeer(
-      [...config[config["peerParam"]]["peerList"]], 
-      config[config["peerParam"]]["minPeers"],
-      config[config["peerParam"]]["maxPeers"]
+    dataMap[_keyTofuzz] = textFuzzer(
+      _fuzzerType,
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["minChars"],
+      config[_keyTofuzz]['fuzzers'][_fuzzerType]["maxChars"],
       );
   }
+  
+  //if this dataMap has any of the partyParams listed, then grab the config for it and put into the fuzzed dataMap
+  var intersections = Object.keys(dataMap).filter(element => argv.partyParams.split(',').includes(element));
+  for(partyParam in intersections){
+    dataMap[intersections[partyParam]] = getRandomPeer(
+      [...config[intersections[partyParam]]["peerList"]], 
+      config[intersections[partyParam]]["peerList"]["minPeers"],
+      config[intersections[partyParam]]["peerList"]["maxPeers"]
+      );
+  }
+  
   return dataMap;
 }
 
 /*
-@PARAM item -> item is a request parsed from the postman collection
 @DESCRIPTION -> Assuming there will be more body types to handle in the future,
 this function will prepare the request for the proper type. For now we are just
-handling urlencoded and the other switch cases are fillers.
+handling urlencoded POST/GET.
+@PARAM _item -> item is a request parsed from the postman collection
 */
-function postRequestByMode(item, requestData){
-  switch(item.request.body.mode) {
-    case "FillerMode1":
-      // code block
-      break;
-    case "FillerMode2":
-      // code block
-      break;
-    default:
-      // default POST request will be executed as urlencoded for now
-
-      // first make a request with existing values in collection to 
-      dynamicRequest(
-        item.request.method, 
-        item.request.url.getRaw(), 
-        querystring.stringify(
-          requestData
-          ));
-  };
+function requestByMode(_item){
+  if(_item.request.method == "POST"){
+    urlEncodedRequestGenerator(
+      _item.request.method, 
+      _item.request.body.urlencoded.members,
+      _item.request.url.getRaw()
+      );
+  }
+  else if(_item.request.method == "GET"){
+    urlEncodedRequestGenerator(
+      _item.request.method, 
+      _item.request.url.query.members,
+      _item.request.url.protocol + "://" + _item.request.url.host + ":" + _item.request.url.port + "/" + _item.request.url.path
+      );
+  }
 }
 
 /*
-@PARAM -> min is the smallest number that will be used in the rng (inclusive)
-@PARAM -> max is the largest number that will be used in the rng (non-inclusive)
-@PARAM -> min is the least amount of digits that will be used in the rng (inclusive)
-@PARAM -> max is the largest amount of digits that will be used in the rng (non-inclusive)
 @DESCRIPTION -> This funciton is responsible for producing random numbers.
+@PARAM _min -> is the smallest number that will be used in the rng (inclusive)
+@PARAM _max -> is the largest number that will be used in the rng (non-inclusive)
+@PARAM _decimalsMin -> is the least amount of digits that will be used in the rng (inclusive)
+@PARAM _decimalsMax -> is the largest amount of digits that will be used in the rng (non-inclusive)
  */
-function numberFuzzer(min=Number.MIN_SAFE_INTEGER, max=Number.MAX_SAFE_INTEGER, decimalsMin=1, decimalsMax=4){
+function numberFuzzer(_min=Number.MIN_SAFE_INTEGER, _max=Number.MAX_SAFE_INTEGER, _decimalsMin=1, _decimalsMax=4){
   var decimal = 0;
-  if(decimalsMax > 1){
-      var decimals = Math.floor(Math.random() * (decimalsMax - decimalsMin) + decimalsMin);
+  if(_decimalsMax > 1){
+      var decimals = Math.floor(Math.random() * (_decimalsMax - _decimalsMin) + _decimalsMin);
 
       var decimalMax = 10**decimals
 
@@ -221,28 +370,27 @@ function numberFuzzer(min=Number.MIN_SAFE_INTEGER, max=Number.MAX_SAFE_INTEGER, 
       decimal = decimalNumber/decimalMax
   }
 
-  var mainNum = Math.random() * (max - min) + min;
+  var mainNum = Math.random() * (_max - _min) + _min;
 
   return Math.floor(mainNum) + decimal;
 }
-/*
-Min / Max length
-Random a-z/A-Z: AJnvaKLJzsd
-Random a-z/A-Z extended languages: 
-Random a-z/A-Z + numbers: s8Av9apJd1
-Random a-z/A-Z + symbols: aJ
 
+/*
 @DESCRIPTION -> function responsible for producing randomly generated strings. The default is the standard
 alphabet with capitalized and non-capitalized letters. Others are:
 - textExtendedLang which includes other langurages such as greek along with the standard set
 - textAndNumbers which leverages the numberFuzzer to add numbers to the string
 - textAndSymbols which will include symbols such as emojis along with the standard set
+
+@PARAM -> _fuzzType is the label of the fuzzer which will be used (see description above)
+@PARAM -> _minLength is the least amount of characters the string will be (inclusive)
+@PARAM -> _maxLength is the most amount of characters the string will be (exclusive)
 */
-function textFuzzer(fuzzType="text", minLength=1, maxLength=100){
+function textFuzzer(_fuzzType="text", _minLength=1, _maxLength=100){
     
   var characterLib = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z']
 
-  switch(fuzzType) {
+  switch(_fuzzType) {
       case "textExtendedLang":
           characterLib = characterLib.concat(require('@unicode/unicode-11.0.0/General_Category/Lowercase_Letter/symbols.js')).concat(require('@unicode/unicode-11.0.0/General_Category/Lowercase_Letter/symbols.js'));
           break;
@@ -255,7 +403,7 @@ function textFuzzer(fuzzType="text", minLength=1, maxLength=100){
       default:
           characterLib = characterLib
   }
-  var textLength = numberFuzzer(minLength, maxLength, 0, 0)
+  var textLength = numberFuzzer(_minLength, _maxLength, 0, 0)
   var fuzzedText = []
   while(fuzzedText.length < textLength){
       fuzzedText.push(characterLib[numberFuzzer(0, characterLib.length, 0, 0)]);
@@ -263,6 +411,12 @@ function textFuzzer(fuzzType="text", minLength=1, maxLength=100){
   return fuzzedText.join('');
 }
 
+/*
+@DESCRIPTION -> returns a random peer or list of peers
+@PARAM -> _peerlist is a list of Corda peers which the fuzzer should randomly select from EX: ["O=PartyA,L=London,C=GB", "O=PartyB,L=New York,C=US",  "O=PartyC,L=New York,C=US"]
+@PARAM -> _minPeers the least amount of peers to select (inclusive) 
+@PARAM -> _maxPeers the least amount of peers to select (exclusive)
+ */
 function getRandomPeer(_peerList, _minPeers=1, _maxPeers=2){
   shuffle(_peerList)
   var peerListSize = numberFuzzer(_minPeers, _maxPeers, 0, 0)
@@ -270,11 +424,17 @@ function getRandomPeer(_peerList, _minPeers=1, _maxPeers=2){
   while(peers.length < peerListSize){
     peers.push(_peerList.pop())
   }
+  if(peers.length == 1){
+    peers = peers[0]
+  }
   return peers; 
 }
-
+/*
+@DESCRIPTION -> wrapper function to append content to an already existing file
+@PARAM -> _data is the content to write to the file
+*/
 function recordResponse(_data){
-  fs.appendFile(argv.outputPath, 
+  fs.appendFile(argv.testOutputPath, 
     '\n'+_data, 
     'utf8',
     function (err) {
@@ -285,3 +445,15 @@ function recordResponse(_data){
   );
 }
 
+/*
+@DESCRIPTION -> wrapper function to create/write a new file
+@PARAM _data ->  is the content to write to the file
+*/
+function writeToFile(_fileName, _content){
+  fs.writeFile(_fileName, _content, 'utf8',
+    function (err) {
+      if (err) {
+        console.log('Some error occured - file either not saved or corrupted file saved.');
+      } 
+  });    
+}

@@ -9,12 +9,16 @@ This directory holds the application used to scan a postman collection, generate
 ### Usage
 ```--pmanCollection``` Path to your Postman Collection.  
 ```--paramConfig``` Path to your configuration file.  
-```--outputPath``` Path to where you would like to save your test results.  
+```--testOutputPath``` Path to where you would like to save your test results.  
+```--confOutputPath``` Path to where you want to save your generated configuration file.  
+```--partyParams``` Comma delimited list of params which use Corda Partys.  
 ```--version``` Show version number.  
 ```-r, --runs``` Number of test runs per discovered endpoint (default is 1).  
 ```-h, --help``` Show help menu.  
 
-Example: *node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --paramConfig ..\SampleConfig.json --outputPath .\myTest.csv*
+Example configuration file generation: *node .\collection_parser.js --pmanCollection My.postman_collection.json --confOutputPath .\SampleConfig.json --partyParams partyName*  
+
+Example generate fuzzed requests and record the output of the results: *node .\collection_parser.js --pmanCollection My.postman_collection.json --paramConfig .\SampleConfig.json --partyParams partyName --testOutputPath .\ExampleTestResults.csv*  
 
 ## CorDapp
 This is a simple CorDapp capable of generate IOUs.

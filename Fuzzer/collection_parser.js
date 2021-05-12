@@ -4,7 +4,7 @@ var yargs = require('yargs');
 var shuffle = require('shuffle-array');
 
 //-------------------------------------------------- CLI definition start --------------------------------------------------
-yargs.version('1.0.0');
+yargs.version('1.1.0');
 
 const argv = yargs
 /*

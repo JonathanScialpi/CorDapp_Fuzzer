@@ -13,7 +13,6 @@ This directory holds the application used to scan a postman collection, generate
 ```--confOutputPath``` Path to where you want to save your generated configuration file.  
 ```--partyParams``` Comma delimited list of params which use Corda Partys.  
 ```--version``` Show version number.  
-```-r, --runs``` Number of test runs per discovered endpoint (default is 1).  
 ```-h, --help``` Show help menu.  
 
 Example configuration file generation: *node .\collection_parser.js --pmanCollection My.postman_collection.json --confOutputPath .\SampleConfig.json --partyParams partyName*  

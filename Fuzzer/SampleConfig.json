@@ -1,0 +1,69 @@
+{
+    "linearId": {
+        "fuzzers": {
+            "numbers": {
+                "min": 2,
+                "max": 7,
+                "decimalsMin": 0,
+                "decimalsMax": 2,
+                "runs": 5
+            },
+            "text": {
+                "minChars": 10,
+                "maxChars": 200,
+                "runs": 5
+            },
+            "textAndNumbers": {
+                "minChars": 10,
+                "maxChars": 200,
+                "runs": 5
+            },
+            "textExtendedLang": {
+                "minChars": 10,
+                "maxChars": 200,
+                "runs": 5
+            },
+            "textAndSymbols": {
+                "minChars": 10,
+                "maxChars": 200,
+                "runs": 5
+            }
+        }
+    },
+    "iouValue": {
+        "fuzzers": {
+            "numbers": {
+                "min": 1,
+                "max": 100,
+                "decimalsMin": 0,
+                "decimalsMax": 2,
+                "runs": 5
+            },
+            "text": {
+                "minChars": 10,
+                "maxChars": 200,
+                "runs": 5
+            },
+            "textAndNumbers": {
+                "minChars": 10,
+                "maxChars": 200,
+                "runs": 5
+            },
+            "textExtendedLang": {
+                "minChars": 10,
+                "maxChars": 200,
+                "runs": 5
+            },
+            "textAndSymbols": {
+                "minChars": 10,
+                "maxChars": 200,
+                "runs": 5
+            }
+        }
+    },
+    "partyName": {
+        "peerList": ["O=PartyA,L=London,C=GB", "O=PartyB,L=New York,C=US",  "O=PartyC,L=New York,C=US"],
+        "maxPeers": 2,
+        "minPeers": 1
+    }
+}

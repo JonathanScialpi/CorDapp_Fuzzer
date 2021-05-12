@@ -10,10 +10,10 @@ const argv = yargs
 /*
 There are two ways to use this CLI.
 The first is to generate the configuation file:
-  node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --confOutputPath.\myTest.json --partyParams partyName,thisOtherOne
+  node .\collection_parser.js --pmanCollection My.postman_collection.json --confOutputPath .\SampleConfig.json --partyParams partyName
 
 The second is to generated fuzzed requests and record the output of the results:
-  node .\collection_parser.js --pmanCollection '.\Postman-Collections\IOUCorDapp.postman_collection.json' --paramConfig ..\SampleConfig.json --partyParams partyName,thisOtherOne --testOutputPath .\myTest.csv
+  node .\collection_parser.js --pmanCollection My.postman_collection.json --paramConfig .\SampleConfig.json --partyParams partyName --testOutputPath .\ExampleTestResults.csv
 */
 .command('--pmanCollection', 'Path to your Postman Collection',{
   pmanCollection: {
@@ -55,6 +55,7 @@ The second is to generated fuzzed requests and record the output of the results:
 .alias('help','h')
 .argv;
 
+// check if proper commands have been used
 if (!argv.pmanCollection){
   throw new Error("The --pmanCollection command is required");
 }
@@ -90,6 +91,7 @@ let config;
 
 //-------------------------------------------------- main start --------------------------------------------------
 
+//block for generating the config file
 if(argv.confOutputPath){
   if(argv.confOutputPath.substring(argv.confOutputPath.length-5, argv.confOutputPath.length) != ".json"){
     throw new Error("confOutputPath file must be of type .json");
@@ -100,7 +102,7 @@ if(argv.confOutputPath){
 
     function(item){
       if(item.request.method == "POST"){
-        choosePostParserType(item)
+        parseUrlEncodedPost(item);
       }
       else if(item.request.method == "GET" && item.request.url.query.members.length > 0){
         parseUrlEncodedGet(item);
@@ -109,6 +111,7 @@ if(argv.confOutputPath){
   );
   writeToFile(argv.confOutputPath, JSON.stringify(configMapJson));
 }
+//block for executing the fuzzedt tests and recording the results
 else{
   if(argv.testOutputPath.substring(argv.testOutputPath.length-4, argv.testOutputPath.length) != ".csv"){
     throw new Error("testOutputPath file must be of type .csv");
@@ -128,7 +131,6 @@ else{
         requestByMode(item);
       }
       else if(item.request.method == "GET" && item.request.url.query.members.length > 0){
-        // dynamicRequest(item.request.method, item.request.url.getRaw(), {});
         requestByMode(item);
       }
       else if(item.request.method == "GET"){
@@ -143,15 +145,10 @@ else{
 
 //-------------------------------------------------- main end --------------------------------------------------
 
-function writeToFile(_fileName, _content){
-  fs.writeFile(_fileName, _content, 'utf8',
-    function (err) {
-      if (err) {
-        console.log('Some error occured - file either not saved or corrupted file saved.');
-      } 
-  });    
-}
-
+/*
+@DESCRIPTION -> the main function used to control the parsing and writing of the generated config files for GET requests
+@PARAM _item -> is the postman request we found in the collection.
+*/
 function parseUrlEncodedGet(_item){
   for(paramIndex in _item.request.url.query.members){
     if(argv.partyParams.split(',').includes(_item.request.url.query.members[paramIndex].key)){
@@ -165,6 +162,10 @@ function parseUrlEncodedGet(_item){
   }
 }
 
+/*
+@DESCRIPTION -> the main function used to control the parsing and writing of the generated config files for POST requests
+@PARAM _item -> is the postman request we found in the collection.
+*/
 function parseUrlEncodedPost(_item){
   for(paramIndex in _item.request.body.urlencoded.members){
     if(argv.partyParams.split(',').includes(_item.request.body.urlencoded.members[paramIndex].key)){
@@ -178,17 +179,10 @@ function parseUrlEncodedPost(_item){
   }
 }
 
-function choosePostParserType(_item){
-  var content = "";
-  switch(_item.request.body.mode){
-    case("Filler"):
-      break;
-    default:
-      content = parseUrlEncodedPost(_item);
-  }
-  return content;
-}
-
+/*
+@DESCRIPTION this function returns the configuration option map to be written to the generated config file
+@PARAM _fuzzer -> the current fuzzer type options we are building
+*/
 function configurationByFuzzer(_fuzzer){
   var configObj;
   switch(_fuzzer){
@@ -225,11 +219,11 @@ function configurationByFuzzer(_fuzzer){
 @PARAM dataMap -> arguments parsed from postman collection which will be replaced with fuzzed versions
 @DESCRIPTION -> the purpose of this function is to generate a request based on the given args and append the response to the csv file
 */
-function dynamicRequest(method, url, dataMap){
+function dynamicRequest(_method, _url, _dataMap){
   axios({
-    method: method.toLowerCase(),
-    url: url,
-    params: dataMap
+    method: _method.toLowerCase(),
+    url: _url,
+    params: _dataMap
   })
    .then(function (response) {
     recordResponse(
@@ -260,9 +254,11 @@ function dynamicRequest(method, url, dataMap){
 }
 
 /*
-@PARAM item -> item is a request parsed from the postman collection
 @DESCRIPTION -> the purpose of this function is to find params that are mentioned in the config
 once found, we replace the value with a fuzzed value and execute a request.
+@PARAM _method -> the request's method such as POST or GET
+@PARAM _params -> the object holding the parameters used to make a request taken from the postman collection
+@PARAM _url -> url used for the postman request
 */
 function urlEncodedRequestGenerator(_method, _params, _url){
   //search all parameters in current request   
@@ -292,9 +288,10 @@ function urlEncodedRequestGenerator(_method, _params, _url){
 }
 
 /*
+@DESCRIPTION -> this function builds a dataMap with fuzzed vales which will be used as a payload for a request.
 @PARAM keyToFuzz -> the parameter name which will be mapped to a fuzzed value
 @PARAM fuzzerType -> the current requested fuzz value type (number, text, textWithNumbers, etc...)
-@DESCRIPTION -> this function builds a dataMap with fuzzed vales which will be used as a payload for a request.
+@PARAM _params -> the object holding the parameters used to make a request taken from the postman collection
 */
 function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
   var dataMap = {}
@@ -317,54 +314,54 @@ function buildFuzzedRequest(_keyTofuzz, _fuzzerType, _params=[]){
       config[_keyTofuzz]['fuzzers'][_fuzzerType]["maxChars"],
       );
   }
-  //if this dataMap has any of the partyParams listed, then grabe the config for it
   
+  //if this dataMap has any of the partyParams listed, then grab the config for it and put into the fuzzed dataMap
   var intersections = Object.keys(dataMap).filter(element => argv.partyParams.split(',').includes(element));
-  if(intersections.length > 0){
-    
-    dataMap[intersections[0]] = getRandomPeer(
-      [...config[intersections[0]]["peerList"]], 
-      config[intersections[0]]["peerList"]["minPeers"],
-      config[intersections[0]]["peerList"]["maxPeers"]
+  for(partyParam in intersections){
+    dataMap[intersections[partyParam]] = getRandomPeer(
+      [...config[intersections[partyParam]]["peerList"]], 
+      config[intersections[partyParam]]["peerList"]["minPeers"],
+      config[intersections[partyParam]]["peerList"]["maxPeers"]
       );
   }
+  
   return dataMap;
 }
 
 /*
-@PARAM item -> item is a request parsed from the postman collection
 @DESCRIPTION -> Assuming there will be more body types to handle in the future,
 this function will prepare the request for the proper type. For now we are just
-handling urlencoded and the other switch cases are fillers.
+handling urlencoded POST/GET.
+@PARAM _item -> item is a request parsed from the postman collection
 */
-function requestByMode(item){
-  if(item.request.method == "POST"){
+function requestByMode(_item){
+  if(_item.request.method == "POST"){
     urlEncodedRequestGenerator(
-      item.request.method, 
-      item.request.body.urlencoded.members,
-      item.request.url.getRaw()
+      _item.request.method, 
+      _item.request.body.urlencoded.members,
+      _item.request.url.getRaw()
       );
   }
-  else if(item.request.method == "GET"){
+  else if(_item.request.method == "GET"){
     urlEncodedRequestGenerator(
-      item.request.method, 
-      item.request.url.query.members,
-      item.request.url.protocol + "://" + item.request.url.host + ":" + item.request.url.port + "/" + item.request.url.path
+      _item.request.method, 
+      _item.request.url.query.members,
+      _item.request.url.protocol + "://" + _item.request.url.host + ":" + _item.request.url.port + "/" + _item.request.url.path
       );
   }
 }
 
 /*
-@PARAM -> min is the smallest number that will be used in the rng (inclusive)
-@PARAM -> max is the largest number that will be used in the rng (non-inclusive)
-@PARAM -> min is the least amount of digits that will be used in the rng (inclusive)
-@PARAM -> max is the largest amount of digits that will be used in the rng (non-inclusive)
 @DESCRIPTION -> This funciton is responsible for producing random numbers.
+@PARAM _min -> is the smallest number that will be used in the rng (inclusive)
+@PARAM _max -> is the largest number that will be used in the rng (non-inclusive)
+@PARAM _decimalsMin -> is the least amount of digits that will be used in the rng (inclusive)
+@PARAM _decimalsMax -> is the largest amount of digits that will be used in the rng (non-inclusive)
  */
-function numberFuzzer(min=Number.MIN_SAFE_INTEGER, max=Number.MAX_SAFE_INTEGER, decimalsMin=1, decimalsMax=4){
+function numberFuzzer(_min=Number.MIN_SAFE_INTEGER, _max=Number.MAX_SAFE_INTEGER, _decimalsMin=1, _decimalsMax=4){
   var decimal = 0;
-  if(decimalsMax > 1){
-      var decimals = Math.floor(Math.random() * (decimalsMax - decimalsMin) + decimalsMin);
+  if(_decimalsMax > 1){
+      var decimals = Math.floor(Math.random() * (_decimalsMax - _decimalsMin) + _decimalsMin);
 
       var decimalMax = 10**decimals
 
@@ -373,28 +370,27 @@ function numberFuzzer(min=Number.MIN_SAFE_INTEGER, max=Number.MAX_SAFE_INTEGER, 
       decimal = decimalNumber/decimalMax
   }
 
-  var mainNum = Math.random() * (max - min) + min;
+  var mainNum = Math.random() * (_max - _min) + _min;
 
   return Math.floor(mainNum) + decimal;
 }
-/*
-Min / Max length
-Random a-z/A-Z: AJnvaKLJzsd
-Random a-z/A-Z extended languages: 
-Random a-z/A-Z + numbers: s8Av9apJd1
-Random a-z/A-Z + symbols: aJ
 
+/*
 @DESCRIPTION -> function responsible for producing randomly generated strings. The default is the standard
 alphabet with capitalized and non-capitalized letters. Others are:
 - textExtendedLang which includes other langurages such as greek along with the standard set
 - textAndNumbers which leverages the numberFuzzer to add numbers to the string
 - textAndSymbols which will include symbols such as emojis along with the standard set
+
+@PARAM -> _fuzzType is the label of the fuzzer which will be used (see description above)
+@PARAM -> _minLength is the least amount of characters the string will be (inclusive)
+@PARAM -> _maxLength is the most amount of characters the string will be (exclusive)
 */
-function textFuzzer(fuzzType="text", minLength=1, maxLength=100){
+function textFuzzer(_fuzzType="text", _minLength=1, _maxLength=100){
     
   var characterLib = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z']
 
-  switch(fuzzType) {
+  switch(_fuzzType) {
       case "textExtendedLang":
           characterLib = characterLib.concat(require('@unicode/unicode-11.0.0/General_Category/Lowercase_Letter/symbols.js')).concat(require('@unicode/unicode-11.0.0/General_Category/Lowercase_Letter/symbols.js'));
           break;
@@ -407,7 +403,7 @@ function textFuzzer(fuzzType="text", minLength=1, maxLength=100){
       default:
           characterLib = characterLib
   }
-  var textLength = numberFuzzer(minLength, maxLength, 0, 0)
+  var textLength = numberFuzzer(_minLength, _maxLength, 0, 0)
   var fuzzedText = []
   while(fuzzedText.length < textLength){
       fuzzedText.push(characterLib[numberFuzzer(0, characterLib.length, 0, 0)]);
@@ -415,6 +411,12 @@ function textFuzzer(fuzzType="text", minLength=1, maxLength=100){
   return fuzzedText.join('');
 }
 
+/*
+@DESCRIPTION -> returns a random peer or list of peers
+@PARAM -> _peerlist is a list of Corda peers which the fuzzer should randomly select from EX: ["O=PartyA,L=London,C=GB", "O=PartyB,L=New York,C=US",  "O=PartyC,L=New York,C=US"]
+@PARAM -> _minPeers the least amount of peers to select (inclusive) 
+@PARAM -> _maxPeers the least amount of peers to select (exclusive)
+ */
 function getRandomPeer(_peerList, _minPeers=1, _maxPeers=2){
   shuffle(_peerList)
   var peerListSize = numberFuzzer(_minPeers, _maxPeers, 0, 0)
@@ -427,7 +429,10 @@ function getRandomPeer(_peerList, _minPeers=1, _maxPeers=2){
   }
   return peers; 
 }
-
+/*
+@DESCRIPTION -> wrapper function to append content to an already existing file
+@PARAM -> _data is the content to write to the file
+*/
 function recordResponse(_data){
   fs.appendFile(argv.testOutputPath, 
     '\n'+_data, 
@@ -440,3 +445,15 @@ function recordResponse(_data){
   );
 }
 
+/*
+@DESCRIPTION -> wrapper function to create/write a new file
+@PARAM _data ->  is the content to write to the file
+*/
+function writeToFile(_fileName, _content){
+  fs.writeFile(_fileName, _content, 'utf8',
+    function (err) {
+      if (err) {
+        console.log('Some error occured - file either not saved or corrupted file saved.');
+      } 
+  });    
+}
